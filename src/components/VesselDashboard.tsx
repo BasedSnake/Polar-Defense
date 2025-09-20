@@ -731,12 +731,12 @@ export function VesselDashboard() {
                       </div>
                       {report && (
                         <div className="mt-2 text-[10px]">
-                          <div>
+                          {/* <div>
                             <strong>Consistency:</strong>{" "}
                             {forcedDark && report.issues.length === 0
                               ? "Forced dark risk indicators"
                               : report.summary}
-                          </div>
+                          </div> */}
                           {report.issues.length ? (
                             <ul className="list-disc ml-5 mt-1 space-y-0.5">
                               {report.issues.map((issue) => (
@@ -757,8 +757,8 @@ export function VesselDashboard() {
                           ) : forcedDark ? (
                             <ul className="list-disc ml-5 mt-1 space-y-0.5">
                               <li className="text-red-600">
-                                NO_CORRELATION: Vessel flagged as dark – no
-                                reliable AIS correlation.
+                                <b>AIS_UNAVAILABLE:</b> Vessel flagged as dark –
+                                no reliable AIS correlation.
                               </li>
                               {/* <li className="text-yellow-600">
                                 AIS_INSUFFICIENT: Insufficient AIS point density
@@ -774,11 +774,11 @@ export function VesselDashboard() {
                           )}
                         </div>
                       )}
-                      {analyzed.rationale && (
+                      {/* {analyzed.rationale && (
                         <div className="text-[10px] text-gray-600 italic">
                           {analyzed.rationale}
                         </div>
-                      )}
+                      )} */}
                     </div>
                   )}
                 </button>

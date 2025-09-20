@@ -13,9 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Arctic Vessel Surveillance Dashboard",
-  description:
-    "Track and monitor vessel positions in strategic Arctic locations using AIS data",
+  title: "Icesight",
+  description: "Dark Vessel Surveillance Dashboard for Arctic Locations",
 };
 
 export default function RootLayout({
