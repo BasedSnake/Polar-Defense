@@ -227,3 +227,14 @@ export const getLocationBounds = (id: string) => {
     northeast: location.bbox.northeast
   };
 };
+
+// Hackathon-grade helper: compute rough geographic center of bbox
+export const getLocationCenter = (id: string): { lat: number; lng: number } | null => {
+  const loc = getLocationById(id);
+  if (!loc) return null;
+  const { southwest: sw, northeast: ne } = loc.bbox;
+  return {
+    lat: (sw.lat + ne.lat) / 2,
+    lng: (sw.lng + ne.lng) / 2
+  };
+};

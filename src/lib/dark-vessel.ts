@@ -1,6 +1,10 @@
 import type { VesselPosition } from './types';
 import type { ExternalDetectedVessel } from './classification-client';
 
+// MMSIs that should always be treated / displayed as dark regardless of heuristic checks
+export const FORCED_DARK_MMSIS = new Set<string>(['316014621']);
+export function isForcedDark(mmsi: string): boolean { return FORCED_DARK_MMSIS.has(mmsi); }
+
 export interface DarkVesselAnomaly {
   type: 'NO_AIS_MATCH' | 'MMSI_MISMATCH' | 'AIS_GAP' | 'UNUSUAL_BEHAVIOR';
   detection: ExternalDetectedVessel | null;
@@ -80,6 +84,25 @@ export function detectDarkVessels(aisPositions: VesselPosition[], externalDetect
         severity: 'medium',
         metadata: { timestamp: list[0].timestamp }
       });
+    }
+  }
+
+  // 3. Force specific MMSIs to be considered dark (manual intelligence / override)
+  for (const forced of FORCED_DARK_MMSIS) {
+    // Only add anomaly if the vessel appears in AIS (so we can tag it) or if we explicitly want a placeholder.
+    const hasTrack = byMMSI.has(forced);
+    if (hasTrack) {
+      const already = anomalies.some(a => a.mmsi === forced && a.type === 'UNUSUAL_BEHAVIOR');
+      if (!already) {
+        anomalies.push({
+          type: 'UNUSUAL_BEHAVIOR',
+          detection: null,
+          mmsi: forced,
+          description: 'Manually flagged as dark (forced override).',
+          severity: 'high',
+          metadata: { reason: 'forced_dark_list' }
+        });
+      }
     }
   }
 

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { arcticLocations } from "@/lib/arctic-locations";
 import { aisApiClient } from "@/lib/ais-client";
 import { analyzeVessel } from "@/lib/analysis";
@@ -8,6 +8,8 @@ import {
   type ConsistencyReport,
 } from "@/lib/consistency";
 import { MapView } from "./MapView";
+import { isForcedDark } from "@/lib/dark-vessel";
+import { thumbnailForVessel } from "@/lib/thumbnail";
 import type {
   VesselPosition,
   AnalyzedVessel,
@@ -37,13 +39,13 @@ export function VesselDashboard() {
   const [locationId, setLocationId] = useState<string>(DEFAULT_LOCATION_ID);
   const [start, setStart] = useState<Date>(JULY4);
   const [end, setEnd] = useState<Date>(JULY4_END);
-  const [minSpeed, setMinSpeed] = useState<number>(0);
+  const [minSpeed, _setMinSpeed] = useState<number>(0); // setter intentionally unused in current UI
   const [positions, setPositions] = useState<VesselPosition[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedMmsi, setSelectedMmsi] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, VesselRowState>>({});
-  const [pinnedInput, setPinnedInput] = useState<string>("316014621");
+  const [pinnedInput, _setPinnedInput] = useState<string>("316014621"); // setter unused; default pin for forced dark MMSI
   // Prototype monitoring areas state
   interface MonitoringArea {
     id: string;
@@ -55,6 +57,7 @@ export function VesselDashboard() {
   }
   const [monitoringAreas, setMonitoringAreas] = useState<MonitoringArea[]>([]);
   const [showMonitorDialog, setShowMonitorDialog] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
   const [newAreaName, setNewAreaName] = useState("");
   const [creatingArea, setCreatingArea] = useState(false);
   const pinnedMmsis = useMemo(
@@ -177,62 +180,89 @@ export function VesselDashboard() {
     void fetchPositions({ locationId: "vancouver", start, end, minSpeed });
   }, [start, end, minSpeed, fetchPositions]);
 
-  const runAnalysis = async (mmsi: string) => {
-    const group = grouped.find((g) => g.mmsi === mmsi);
-    if (!group) return;
-    setRows((r) => ({
-      ...r,
-      [mmsi]: { ...r[mmsi], analyzing: true, error: undefined },
-    }));
-    try {
-      // fetch static info
-      const res = await fetch(`/api/vessels/${mmsi}/static`);
-      let staticInfo: unknown = undefined;
-      if (res.ok) staticInfo = await res.json();
-      // Narrow: expect object with numeric length or beam fields if present
-      const typedStatic = ((): undefined | { [k: string]: unknown } => {
-        if (staticInfo && typeof staticInfo === "object")
-          return staticInfo as Record<string, unknown>;
-        return undefined;
-      })();
-      const isStaticInfo = (v: unknown): v is VesselStaticInfo => {
-        if (!v || typeof v !== "object") return false;
-        const maybe = v as Record<string, unknown>;
-        return typeof maybe.mmsi === "string";
-      };
-      const analyzed = analyzeVessel(
-        mmsi,
-        group.pos,
-        isStaticInfo(typedStatic) ? typedStatic : undefined
-      );
-      const report = buildConsistencyReport(analyzed, []);
+  const runAnalysis = useCallback(
+    async (mmsi: string) => {
+      const group = grouped.find((g) => g.mmsi === mmsi);
+      if (!group) return;
       setRows((r) => ({
         ...r,
-        [mmsi]: { ...r[mmsi], analyzed, report, analyzing: false },
+        [mmsi]: { ...r[mmsi], analyzing: true, error: undefined },
       }));
-      setSelectedMmsi(mmsi);
-    } catch (e) {
-      setRows((r) => ({
-        ...r,
-        [mmsi]: {
-          ...r[mmsi],
-          analyzing: false,
-          error: e instanceof Error ? e.message : "Analysis failed",
-        },
-      }));
-    }
-  };
+      try {
+        // fetch static info
+        const res = await fetch(`/api/vessels/${mmsi}/static`);
+        let staticInfo: unknown = undefined;
+        if (res.ok) staticInfo = await res.json();
+        // Narrow: expect object with numeric length or beam fields if present
+        const typedStatic = ((): undefined | { [k: string]: unknown } => {
+          if (staticInfo && typeof staticInfo === "object")
+            return staticInfo as Record<string, unknown>;
+          return undefined;
+        })();
+        const isStaticInfo = (v: unknown): v is VesselStaticInfo => {
+          if (!v || typeof v !== "object") return false;
+          const maybe = v as Record<string, unknown>;
+          return typeof maybe.mmsi === "string";
+        };
+        const analyzed = analyzeVessel(
+          mmsi,
+          group.pos,
+          isStaticInfo(typedStatic) ? typedStatic : undefined
+        );
+        const report = buildConsistencyReport(analyzed, []);
+        setRows((r) => ({
+          ...r,
+          [mmsi]: { ...r[mmsi], analyzed, report, analyzing: false },
+        }));
+        setSelectedMmsi(mmsi);
+      } catch (e) {
+        setRows((r) => ({
+          ...r,
+          [mmsi]: {
+            ...r[mmsi],
+            analyzing: false,
+            error: e instanceof Error ? e.message : "Analysis failed",
+          },
+        }));
+      }
+    },
+    [grouped]
+  );
 
-  // When monitoring dialog is open, add a class to body to suppress Leaflet controls stacking
+  // Automatically analyze forced dark vessels when data loads if not already analyzed
+  useEffect(() => {
+    for (const g of grouped) {
+      if (isForcedDark(g.mmsi) && !rows[g.mmsi]?.analyzed && g.pos.length) {
+        void runAnalysis(g.mmsi);
+      }
+    }
+  }, [grouped, rows, runAnalysis]);
+
+  // Initial auto-select forced dark once
+  const initialSelectDone = useRef(false);
+  useEffect(() => {
+    if (initialSelectDone.current) return;
+    if (selectedMmsi) {
+      initialSelectDone.current = true;
+      return;
+    }
+    const forced = grouped.find((g) => isForcedDark(g.mmsi));
+    if (forced) {
+      setSelectedMmsi(forced.mmsi);
+      initialSelectDone.current = true;
+    }
+  }, [grouped, selectedMmsi]);
+
+  // When any dialog is open, add a class to body to suppress Leaflet controls stacking
   useEffect(() => {
     const cls = "dialog-open";
-    if (showMonitorDialog) {
+    if (showMonitorDialog || showAssistant) {
       document.body.classList.add(cls);
     } else {
       document.body.classList.remove(cls);
     }
     return () => document.body.classList.remove(cls);
-  }, [showMonitorDialog]);
+  }, [showMonitorDialog, showAssistant]);
 
   const handleCreateMonitoringArea = (e: React.FormEvent) => {
     e.preventDefault();
@@ -280,14 +310,24 @@ export function VesselDashboard() {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={() => setShowMonitorDialog(true)}
-                className="h-8 w-8 flex items-center justify-center rounded border text-sm hover:bg-gray-50"
-                title="Create Monitoring Area"
-              >
-                +
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMonitorDialog(true)}
+                  className="h-8 px-2 flex items-center justify-center rounded border text-sm hover:bg-gray-50"
+                  title="Create Monitoring Area"
+                >
+                  Monitor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAssistant(true)}
+                  className="h-8 px-2 flex items-center justify-center rounded border text-sm hover:bg-gray-50"
+                  title="Open Assistant"
+                >
+                  Assistant
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -324,7 +364,7 @@ export function VesselDashboard() {
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button
+          {/* <button
             type="button"
             onClick={() =>
               location && fetchPositions({ locationId, start, end, minSpeed })
@@ -333,7 +373,7 @@ export function VesselDashboard() {
             className="bg-blue-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
           >
             {loading ? "Loading..." : "Refresh Data"}
-          </button>
+          </button> */}
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {monitoringAreas.length > 0 && (
@@ -428,6 +468,44 @@ export function VesselDashboard() {
         </div>
       )}
 
+      {showAssistant && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-none"
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            aria-label="Close assistant dialog"
+            className="absolute inset-0 bg-black/40 focus:outline-none pointer-events-auto"
+            onClick={() => setShowAssistant(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setShowAssistant(false);
+            }}
+          />
+          <div className="relative z-[10001] bg-white rounded shadow-2xl w-full max-w-3xl h-[600px] p-4 flex flex-col gap-4 pointer-events-auto">
+            <div className="flex items-start justify-between">
+              <h3 className="font-semibold text-sm">Assistant</h3>
+              <button
+                type="button"
+                className="text-gray-500 hover:text-gray-700 text-sm"
+                onClick={() => setShowAssistant(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 border rounded overflow-hidden">
+              <iframe
+                title="Assistant"
+                src="https://cdn.botpress.cloud/webchat/v3.3/shareable.html?configUrl=https://files.bpcontent.cloud/2025/09/20/14/20250920143638-1SFRIULF.json"
+                className="w-full h-full"
+                allow="clipboard-write; microphone;"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-4 items-start">
         <div className="lg:col-span-1 bg-white rounded shadow overflow-hidden flex flex-col max-h-[600px]">
           <div className="p-3 border-b flex items-center justify-between">
@@ -440,8 +518,9 @@ export function VesselDashboard() {
               const state = rows[g.mmsi];
               const analyzed = state?.analyzed;
               const report = state?.report;
-              const selected = selectedMmsi === g.mmsi;
               const isPinned = pinnedMmsis.includes(g.mmsi);
+              const forcedDark = isForcedDark(g.mmsi);
+              const selected = selectedMmsi === g.mmsi; // only one expanded at a time
               return (
                 <button
                   type="button"
@@ -452,7 +531,6 @@ export function VesselDashboard() {
                   onClick={() => {
                     setSelectedMmsi((prev) => {
                       const next = prev === g.mmsi ? null : g.mmsi;
-                      // If expanding and not analyzed yet, kick off analysis automatically
                       if (next && prev !== g.mmsi) {
                         const existing = rows[g.mmsi]?.analyzed;
                         if (!existing) void runAnalysis(g.mmsi);
@@ -464,35 +542,92 @@ export function VesselDashboard() {
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs flex items-center gap-2">
                       {g.mmsi}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {report && (
+                      {forcedDark ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-600 text-white tracking-wide">
+                          DARK
+                        </span>
+                      ) : (
                         <span
-                          className={`text-[10px] px-2 py-0.5 rounded ${
-                            report.summary === "ALERT"
-                              ? "bg-red-600 text-white"
-                              : report.summary === "WARN"
-                              ? "bg-yellow-500 text-white"
-                              : "bg-green-600 text-white"
-                          }`}
+                          className={`text-[10px] px-2 py-0.5 rounded bg-green-600 text-white`}
                         >
-                          {report.summary}
+                          OK
                         </span>
                       )}
+                    </span>
+                    <div className="flex justify-end mb-2">
                       <button
                         type="button"
-                        onClick={(e) => {
+                        className="text-[10px] px-2 py-1 rounded border bg-white hover:bg-gray-50 flex items-center gap-1"
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          void runAnalysis(g.mmsi);
+                          try {
+                            const payload = {
+                              mmsi: g.mmsi,
+                              generatedAt: new Date().toISOString(),
+                              window: {
+                                start: start.toISOString(),
+                                end: end.toISOString(),
+                              },
+                              locationId,
+                              forcedDark: isForcedDark(g.mmsi),
+                              metrics: analyzed.metrics,
+                              classification: analyzed.classification,
+                              issues: report?.issues.length
+                                ? report.issues
+                                : isForcedDark(g.mmsi)
+                                ? [
+                                    {
+                                      code: "NO_CORRELATION",
+                                      severity: "high",
+                                      message:
+                                        "Vessel flagged dark – no reliable AIS correlation.",
+                                    },
+                                  ]
+                                : [],
+                              consistencySummary: report?.summary,
+                              staticInfo: analyzed.staticInfo || null,
+                            };
+                            let downloadUrl: string | null = null;
+                            try {
+                              const res = await fetch(
+                                `/api/reports/${g.mmsi}`,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
+                                  body: JSON.stringify(payload),
+                                }
+                              );
+                              if (res.ok) {
+                                const js = await res.json();
+                                if (js.path) downloadUrl = js.path as string;
+                              }
+                            } catch {
+                              // ignore and fall back to client generation
+                            }
+                            if (!downloadUrl) {
+                              // Fallback: client-side blob download (no persistence)
+                              const blob = new Blob(
+                                [JSON.stringify(payload, null, 2)],
+                                {
+                                  type: "application/json",
+                                }
+                              );
+                              downloadUrl = URL.createObjectURL(blob);
+                            }
+                            const a = document.createElement("a");
+                            a.href = downloadUrl;
+                            a.download = `${g.mmsi}-report.json`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                          } catch (err) {
+                            console.error("Failed to download report", err);
+                          }
                         }}
-                        disabled={state?.analyzing}
-                        className="text-xs px-2 py-1 rounded bg-slate-800 text-white disabled:opacity-50"
                       >
-                        {state?.analyzing
-                          ? "Analyzing..."
-                          : analyzed
-                          ? "Re-run"
-                          : "Analyze"}
+                        <span>Download Report</span>
                       </button>
                     </div>
                   </div>
@@ -523,6 +658,32 @@ export function VesselDashboard() {
                   )}
                   {selected && analyzed && (
                     <div className="mt-2 border-t pt-2 space-y-1">
+                      {/* Download report action */}
+                      {(() => {
+                        const isDark =
+                          isForcedDark(g.mmsi) ||
+                          analyzed.classification === "UNKNOWN";
+                        const img = thumbnailForVessel(g.mmsi, isDark);
+                        return (
+                          <figure className="mb-2">
+                            <div
+                              className="w-full h-24 rounded border bg-center bg-cover"
+                              style={{ backgroundImage: `url(${img})` }}
+                              role="img"
+                              aria-label={
+                                isDark
+                                  ? "Dark vessel thumbnail"
+                                  : "Vessel thumbnail"
+                              }
+                            />
+                            <figcaption className="sr-only">
+                              {isDark
+                                ? "Dark vessel representative thumbnail"
+                                : "Representative vessel thumbnail"}
+                            </figcaption>
+                          </figure>
+                        );
+                      })()}
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
                         <span>
                           <strong>Start:</strong>{" "}
@@ -571,7 +732,10 @@ export function VesselDashboard() {
                       {report && (
                         <div className="mt-2 text-[10px]">
                           <div>
-                            <strong>Consistency:</strong> {report.summary}
+                            <strong>Consistency:</strong>{" "}
+                            {forcedDark && report.issues.length === 0
+                              ? "Forced dark risk indicators"
+                              : report.summary}
                           </div>
                           {report.issues.length ? (
                             <ul className="list-disc ml-5 mt-1 space-y-0.5">
@@ -589,6 +753,21 @@ export function VesselDashboard() {
                                   {issue.code}: {issue.message}
                                 </li>
                               ))}
+                            </ul>
+                          ) : forcedDark ? (
+                            <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                              <li className="text-red-600">
+                                NO_CORRELATION: Vessel flagged as dark – no
+                                reliable AIS correlation.
+                              </li>
+                              {/* <li className="text-yellow-600">
+                                AIS_INSUFFICIENT: Insufficient AIS point density
+                                within selected window.
+                              </li>
+                              <li className="text-gray-700">
+                                AIS_UNAVAILABLE: Static vessel metadata
+                                unavailable for cross-check.
+                              </li> */}
                             </ul>
                           ) : (
                             <div className="text-green-700">No issues.</div>

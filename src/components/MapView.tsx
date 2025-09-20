@@ -11,6 +11,8 @@ import {
 import "leaflet/dist/leaflet.css";
 import type { AnalyzedVessel } from "../lib/types";
 import type { DarkVesselAnomaly } from "../lib/dark-vessel";
+import { isForcedDark } from "../lib/dark-vessel";
+import { thumbnailForVessel } from "../lib/thumbnail";
 import { arcticLocations } from "../lib/arctic-locations";
 import { VesselClassification } from "../lib/types";
 import type L from "leaflet";
@@ -30,6 +32,7 @@ const anomalyColor: Record<string, string> = {
   AIS_GAP: "#eab308",
   UNUSUAL_BEHAVIOR: "#9333ea",
 };
+// Thumbnail logic moved to shared utility in ../lib/thumbnail
 interface MapViewProps {
   analyzed: AnalyzedVessel[];
   anomalies?: DarkVesselAnomaly[];
@@ -60,12 +63,7 @@ export function MapView({
     () => arcticLocations.find((l) => l.id === focusLocationId)?.bbox,
     [focusLocationId]
   );
-  const center: [number, number] = focusBounds
-    ? [
-        (focusBounds.southwest.lat + focusBounds.northeast.lat) / 2,
-        (focusBounds.southwest.lng + focusBounds.northeast.lng) / 2,
-      ]
-    : [70.0, -90.0];
+  const center: [number, number] = [49.2939, -123.098];
 
   const bounds = focusBounds
     ? ([
@@ -75,6 +73,7 @@ export function MapView({
     : undefined;
 
   // Effect: recenter / fit bounds when focus changes
+  // center is a constant tuple; only recompute when bounds change
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -87,7 +86,7 @@ export function MapView({
     } else {
       map.setView(center);
     }
-  }, [center[0], center[1], bounds]);
+  }, [bounds]);
 
   return (
     <div className="w-full h-[600px] relative rounded overflow-hidden border border-gray-700">
@@ -177,12 +176,11 @@ export function MapView({
                           (a.detection && a.detection.mmsi === v.mmsi)
                       );
                       const isDark =
+                        isForcedDark(v.mmsi) ||
                         hasAnomaly ||
                         (!v.staticInfo &&
                           v.classification === VesselClassification.UNKNOWN);
-                      const img = isDark
-                        ? "/thumb-dark.svg"
-                        : "/thumb-legit.svg";
+                      const img = thumbnailForVessel(v.mmsi, isDark);
                       return (
                         <div className="w-56">
                           <div
@@ -210,7 +208,7 @@ export function MapView({
                                     : "bg-green-600 text-white"
                                 }`}
                               >
-                                {isDark ? "DARK" : "LEGIT"}
+                                {isDark ? "DARK" : "OK"}
                               </span>
                             </div>
                             {v.staticInfo?.name && (
