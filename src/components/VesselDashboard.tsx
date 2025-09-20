@@ -44,6 +44,19 @@ export function VesselDashboard() {
   const [selectedMmsi, setSelectedMmsi] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, VesselRowState>>({});
   const [pinnedInput, setPinnedInput] = useState<string>("316014621");
+  // Prototype monitoring areas state
+  interface MonitoringArea {
+    id: string;
+    name: string;
+    createdAt: string;
+    locationId: string;
+    start: string; // ISO
+    end: string; // ISO
+  }
+  const [monitoringAreas, setMonitoringAreas] = useState<MonitoringArea[]>([]);
+  const [showMonitorDialog, setShowMonitorDialog] = useState(false);
+  const [newAreaName, setNewAreaName] = useState("");
+  const [creatingArea, setCreatingArea] = useState(false);
   const pinnedMmsis = useMemo(
     () =>
       pinnedInput
@@ -210,34 +223,75 @@ export function VesselDashboard() {
     }
   };
 
+  // When monitoring dialog is open, add a class to body to suppress Leaflet controls stacking
+  useEffect(() => {
+    const cls = "dialog-open";
+    if (showMonitorDialog) {
+      document.body.classList.add(cls);
+    } else {
+      document.body.classList.remove(cls);
+    }
+    return () => document.body.classList.remove(cls);
+  }, [showMonitorDialog]);
+
+  const handleCreateMonitoringArea = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAreaName.trim()) return;
+    setCreatingArea(true);
+    setTimeout(() => {
+      setMonitoringAreas((prev) => [
+        {
+          id: crypto.randomUUID(),
+          name: newAreaName.trim(),
+          createdAt: new Date().toISOString(),
+          locationId,
+          start: start.toISOString(),
+          end: end.toISOString(),
+        },
+        ...prev,
+      ]);
+      setNewAreaName("");
+      setCreatingArea(false);
+      setShowMonitorDialog(false);
+    }, 300);
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-white rounded shadow p-4 flex flex-col gap-4">
-        <div className="text-[10px] bg-amber-50 border border-amber-300 text-amber-800 px-2 py-1 rounded">
-          Data source fixed to Vancouver; selecting another location only pans
-          the map.
-        </div>
-        <div className="grid md:grid-cols-4 gap-4 mt-2">
-          <div>
+      <div className="bg-white rounded shadow p-4 flex flex-col gap-3">
+        <div className="flex items-end gap-3 flex-wrap">
+          <div className="min-w-[200px]">
             <label
               htmlFor="vd-location"
               className="block text-xs font-medium text-gray-600 mb-1"
             >
               Location
             </label>
-            <select
-              id="vd-location"
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              className="w-full border rounded px-2 py-1 text-sm"
-            >
-              {arcticLocations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                id="vd-location"
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+                className="w-full border rounded px-2 py-1 text-sm"
+              >
+                {arcticLocations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowMonitorDialog(true)}
+                className="h-8 w-8 flex items-center justify-center rounded border text-sm hover:bg-gray-50"
+                title="Create Monitoring Area"
+              >
+                +
+              </button>
+            </div>
           </div>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-4">
           <div>
             <label
               htmlFor="vd-start"
@@ -268,45 +322,8 @@ export function VesselDashboard() {
               className="w-full border rounded px-2 py-1 text-sm"
             />
           </div>
-          <div>
-            <label
-              htmlFor="vd-min-speed"
-              className="block text-xs font-medium text-gray-600 mb-1"
-            >
-              Min Speed (kn)
-            </label>
-            <input
-              id="vd-min-speed"
-              type="number"
-              step="0.1"
-              value={minSpeed}
-              onChange={(e) => setMinSpeed(parseFloat(e.target.value) || 0)}
-              className="w-full border rounded px-2 py-1 text-sm"
-            />
-          </div>
         </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <label
-              htmlFor="vd-pinned"
-              className="block text-xs font-medium text-gray-600 mb-1"
-            >
-              Pinned MMSIs
-            </label>
-            <input
-              id="vd-pinned"
-              type="text"
-              value={pinnedInput}
-              onChange={(e) => setPinnedInput(e.target.value)}
-              placeholder="Comma or space separated"
-              className="w-full border rounded px-2 py-1 text-sm"
-            />
-            <p className="mt-1 text-[10px] text-gray-500">
-              Always shown (empty rows if no AIS in range).
-            </p>
-          </div>
-        </div>
-        <div>
+        <div className="flex gap-2 flex-wrap">
           <button
             type="button"
             onClick={() =>
@@ -315,11 +332,99 @@ export function VesselDashboard() {
             disabled={loading || !location}
             className="bg-blue-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
           >
-            {loading ? "Loading..." : "Refresh"}
+            {loading ? "Loading..." : "Refresh Data"}
           </button>
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
+        {monitoringAreas.length > 0 && (
+          <div className="mt-2 border-t pt-2">
+            <h4 className="text-xs font-semibold text-gray-600 mb-1">
+              Monitoring Areas (prototype)
+            </h4>
+            <ul className="space-y-1 max-h-32 overflow-y-auto text-xs">
+              {monitoringAreas.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center justify-between gap-2 bg-gray-50 rounded px-2 py-1"
+                >
+                  <span className="truncate">{a.name}</span>
+                  <span className="text-[10px] text-gray-500">
+                    {a.locationId} • {a.start.slice(5, 16)} →{" "}
+                    {a.end.slice(5, 16)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
+
+      {showMonitorDialog && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-none"
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            aria-label="Close dialog"
+            className="absolute inset-0 bg-black/40 focus:outline-none pointer-events-auto"
+            onClick={() => !creatingArea && setShowMonitorDialog(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && !creatingArea)
+                setShowMonitorDialog(false);
+            }}
+          />
+          <div className="relative z-[10001] bg-white rounded shadow-2xl w-full max-w-md p-6 flex flex-col gap-4 pointer-events-auto">
+            <div className="flex items-start justify-between">
+              <h3 className="font-semibold text-sm">Create Monitoring Area</h3>
+              <button
+                type="button"
+                className="text-gray-500 hover:text-gray-700 text-sm"
+                onClick={() => setShowMonitorDialog(false)}
+                disabled={creatingArea}
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleCreateMonitoringArea} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="ma-name"
+                  className="block text-xs font-medium text-gray-600 mb-1"
+                >
+                  Name
+                </label>
+                <input
+                  id="ma-name"
+                  type="text"
+                  value={newAreaName}
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  placeholder="e.g. Beaufort July Window"
+                  className="w-full border rounded px-2 py-1 text-sm"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-sm rounded border"
+                  onClick={() => setShowMonitorDialog(false)}
+                  disabled={creatingArea}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newAreaName.trim() || creatingArea}
+                  className="px-4 py-1.5 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+                >
+                  {creatingArea ? "Creating..." : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-4 items-start">
         <div className="lg:col-span-1 bg-white rounded shadow overflow-hidden flex flex-col max-h-[600px]">

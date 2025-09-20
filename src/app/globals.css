@@ -24,3 +24,13 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Dialog vs Leaflet layering adjustments */
+body.dialog-open :is(.leaflet-top, .leaflet-bottom) {
+  z-index: 200; /* keep them visible but below dialog (>=10000) */
+}
+
+/* Ensure base map tiles do not exceed dialog */
+body.dialog-open :is(.leaflet-pane, .leaflet-map-pane) {
+  z-index: 100;
+}
