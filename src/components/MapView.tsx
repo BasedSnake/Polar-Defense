@@ -14,7 +14,7 @@ import type { DarkVesselAnomaly } from "../lib/dark-vessel";
 import { arcticLocations } from "../lib/arctic-locations";
 import { VesselClassification } from "../lib/types";
 import type L from "leaflet";
-import { useMemo } from "react";
+import { useMemo, useEffect, useRef } from "react";
 
 const classificationColor: Record<string, string> = {
   [VesselClassification.STATIONARY]: "#f59e0b",
@@ -47,6 +47,15 @@ export function MapView({
   onSelectVessel,
   pinnedMmsis,
 }: MapViewProps) {
+  // Minimal map interface to avoid depending on specific Leaflet Map type export
+  interface MapLike {
+    fitBounds: (
+      b: L.LatLngBoundsExpression,
+      opts?: { animate?: boolean; padding?: [number, number] }
+    ) => void;
+    setView: (center: [number, number]) => void;
+  }
+  const mapRef = useRef<MapLike | null>(null);
   const focusBounds = useMemo(
     () => arcticLocations.find((l) => l.id === focusLocationId)?.bbox,
     [focusLocationId]
@@ -65,6 +74,21 @@ export function MapView({
       ] as L.LatLngBoundsExpression)
     : undefined;
 
+  // Effect: recenter / fit bounds when focus changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (bounds) {
+      try {
+        map.fitBounds(bounds, { animate: true, padding: [24, 24] });
+      } catch {
+        map.setView(center);
+      }
+    } else {
+      map.setView(center);
+    }
+  }, [center[0], center[1], bounds]);
+
   return (
     <div className="w-full h-[600px] relative rounded overflow-hidden border border-gray-700">
       <MapContainer
@@ -72,6 +96,10 @@ export function MapView({
         zoom={13}
         style={{ height: "100%", width: "100%" }}
         bounds={bounds}
+        whenCreated={(m: unknown) => {
+          // Cast to MapLike (runtime object provides needed methods)
+          mapRef.current = m as unknown as MapLike;
+        }}
         preferCanvas
       >
         <TileLayer

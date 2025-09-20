@@ -374,7 +374,9 @@ export function VesselDashboard() {
               if (e.key === "Escape" && !creatingArea)
                 setShowMonitorDialog(false);
             }}
-          />
+          >
+            +
+          </button>
           <div className="relative z-[10001] bg-white rounded shadow-2xl w-full max-w-md p-6 flex flex-col gap-4 pointer-events-auto">
             <div className="flex items-start justify-between">
               <h3 className="font-semibold text-sm">Create Monitoring Area</h3>
