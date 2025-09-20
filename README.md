@@ -20,17 +20,110 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Learn More
+## Dark Vessel Surveillance (Hackathon Prototype)
 
-To learn more about Next.js, take a look at the following resources:
+This prototype focuses on Canadian Arctic maritime situational awareness: detecting potential "dark" vessels (those operating without AIS or with anomalous patterns) in sovereignty-critical corridors (Northwest Passage chokepoints, Beaufort Shelf, Hudson Strait, etc.).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Key Features
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- AIS Position Ingestion: Normalizes polymorphic AIS API responses (array or object forms) via `ais-client.ts`.
+- Static Vessel Info: Best-effort enrichment through `getVesselStaticInfo` (placeholder—adapt endpoint as needed).
+- Movement Analysis: Metrics (distance, dwell ratio, speed variance) for behavioral classification.
+- External Sensor Stub: `classification-client.ts` integrates a hypothetical multi-sensor classification API returning non‑AIS detections.
+- Dark Vessel Heuristics: `dark-vessel.ts` flags sensor detections lacking AIS correlation and sparse AIS tracks.
+- Arctic Priority Zones: Granular chokepoint polygons (Lancaster Sound, Peel Sound, Victoria Strait, etc.) in `arctic-locations.ts`.
+- Interactive Map: Leaflet-based `MapView` overlays AIS tracks, classifications, anomalies, and priority zone rectangles.
 
-## Deploy on Vercel
+### Pages
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `/dark-vessels` – Demonstration page combining AIS fetch, external classification stub, anomaly detection, and a map.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Data Flow
+
+1. User loads `/dark-vessels`.
+2. Server components fetch AIS positions for a chosen zone + time window.
+3. Positions grouped by MMSI; movement metrics + behavioral classification computed.
+4. External classification API stub returns synthetic (or real, if wired) detections.
+5. Anomaly engine cross-compares AIS vs external detections.
+6. Map renders: tracks (colored by class) + anomaly markers + zone overlays.
+
+### Classification Legend
+
+| Classification | Color | Heuristic (simplified) |
+|----------------|-------|------------------------|
+| TRANSIT        | Green | Sustained distance & speed |
+| STATIONARY     | Amber | Minimal movement + very low avg speed |
+| ANCHORED       | Indigo | Low speed + high dwell + limited drift |
+| MANEUVERING    | Pink  | High heading variability |
+| UNKNOWN        | Gray  | Insufficient or ambiguous data |
+
+### Anomaly Types
+
+- `NO_AIS_MATCH`: External detection with no spatial-temporal AIS correlation (potential dark vessel).
+- `AIS_GAP`: Single AIS point in window (possible intermittent emission or spoof).
+- Future (placeholders): `MMSI_MISMATCH`, `UNUSUAL_BEHAVIOR` (add advanced analytics later).
+
+### Setup & Environment Variables
+
+Create a `.env.local` if needed:
+
+```
+NEXT_PUBLIC_CLASSIFICATION_API_BASE=https://your-external-sensor-api.example
+```
+
+Install dependencies (after pulling this branch):
+
+```bash
+npm install
+npm run dev
+```
+
+Then open: `http://localhost:3000/dark-vessels`.
+
+### File Overview
+
+- `src/lib/ais-client.ts` – AIS API interaction & normalization.
+- `src/lib/types.ts` – Shared domain types (positions, static info, metrics, classification).
+- `src/lib/analysis.ts` – Movement metrics + classification heuristics.
+- `src/lib/classification-client.ts` – External detection API stub.
+- `src/lib/dark-vessel.ts` – Dark vessel anomaly detection logic.
+- `src/lib/arctic-locations.ts` – Priority surveillance zone registry.
+- `src/components/MapView.tsx` – Leaflet visualization.
+- `src/app/dark-vessels/page.tsx` – Demo assembly page.
+
+### Extending the Prototype
+
+Potential enhancements (not yet implemented):
+
+- WebSocket / SSE real-time AIS updates.
+- Temporal heatmaps (loitering hotspots) per zone.
+- ML-based anomaly scoring integrating speed / course residuals.
+- SAR / RF ingestion adapter translating detections into the external classification schema.
+- MMSI identity drift detection (flag abrupt type/length/flag changes).
+- Spatial indexing (R-tree) for faster correlation at scale.
+
+### Limitations
+
+- External classification endpoint is a stub; integrate real sensor fusion backend.
+- Static vessel info call uses heuristic field mapping; refine with authoritative schema.
+- Anomaly logic intentionally simple; expand with statistical baselines & domain intelligence.
+- No persistence layer (pure in-memory processing per request).
+
+### Contributing
+
+1. Fork / branch
+2. Implement feature
+3. Ensure lint passes: `npm run lint`
+4. Submit PR with description & sample output screenshot.
+
+### License
+
+Internal hackathon prototype – clarify licensing before external distribution.
+
+---
+
+For general Next.js documentation see:
+- https://nextjs.org/docs
+- https://nextjs.org/learn
+
+Deployment guidance: https://nextjs.org/docs/app/building-your-application/deploying
